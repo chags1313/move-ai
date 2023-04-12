@@ -1,5 +1,5 @@
 mediapipe
 streamlit
 streamlit-webrtc
-opencv-python-headless
+opencv-python
 libgl1
