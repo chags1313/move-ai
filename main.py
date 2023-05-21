@@ -573,7 +573,7 @@ if video_file is not None:
         st.session_state['slide_value']  = st.session_state['slide_value'] + 0.1
     play = c3.button("Play", use_container_width = True)
     if play:
-        for frame in range(0.0 df_pose['Frame'].max(), 0.1):
+        for frame in range(0.0, df_pose['Frame'].max(), 0.1):
                 if frame < df_pose['Frame'].max() - 0.1:
                     st.session_state['slide_value'] = st.session_state['slide_value'] + 0.1
 
