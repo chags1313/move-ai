@@ -571,12 +571,12 @@ if video_file is not None:
     next = c2.button("Next ⏭️", use_container_width=True)
     if next:
         st.session_state['slide_value']  = st.session_state['slide_value'] + 0.1
-    play = c3.button("Play")
+    play = c3.button("Play", use_container_width = True)
     if play:
         for frame in df_pose['Frame'].unique():
             try:
-                st.write(frame)
-                st.session_state['slide_value'] = st.session_state['slide_value'] + 0.1
+                if frame < df_pose['Frame'].max() - 0.1:
+                    st.session_state['slide_value'] = st.session_state['slide_value'] + 0.1
             except: continue
 
     # Select joint to plot
