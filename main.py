@@ -574,6 +574,7 @@ if video_file is not None:
     play = c3.button("Play")
     if play:
         for frame in df_pose['Frame'].unique():
+            st.write(frame)
             st.session_state['slide_value'] = st.session_state['slide_value'] + frame
 
     # Select joint to plot
