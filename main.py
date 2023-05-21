@@ -564,13 +564,17 @@ if video_file is not None:
     st.plotly_chart(imag, use_container_width=True)
     slide = st.slider("Time", min_value = 0.0, max_value = df_pose['Frame'].max(), step = 0.1,  key = 'side1', value = float(st.session_state['slide_value']))
     st.session_state['slide_value'] = slide
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     prev = c1.button("⏮️ Previous", use_container_width=True)
     if prev:
         st.session_state['slide_value']  = st.session_state['slide_value'] - 0.1
     next = c2.button("Next ⏭️", use_container_width=True)
     if next:
         st.session_state['slide_value']  = st.session_state['slide_value'] + 0.1
+    play = st.button("Play")
+    if play:
+        for i in range(len(df_pose)):
+            st.session_state['slide_value'] = st.session_state['slide_value']
 
     # Select joint to plot
     jnt = st.multiselect('Joint', options = df_joint_angles.columns)
