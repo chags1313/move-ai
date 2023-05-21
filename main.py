@@ -543,7 +543,7 @@ def create_joint_velocity_plot(df_joint_angles, slide):
 
 
 # Upload a video
-video_file = st.sidebar.file_uploader("Upload a video", type=["mp4"])
+video_file = st.sidebar.file_uploader("Upload a video")
 with st.sidebar.expander("Settings"):
     line_color = st.color_picker("Lines")
 
