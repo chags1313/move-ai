@@ -257,7 +257,7 @@ def extract_pose_keypoints(video_path):
                     landmarks_dict[f'landmark_{idx}'] = [landmark.x, landmark.y, landmark.z, landmark.visibility]
 
             # Add the landmarks to the dataframe
-            df_pose = pd.concat([pd.DataFrame(landmarks_dict), df_pose], ignore_index=True)
+            df_pose = df_pose.append(landmarks_dict, ignore_index=True)
 
         # Convert the dataframe to seconds
         df_pose['Frame'] = df_pose.index / 10
