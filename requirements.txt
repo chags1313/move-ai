@@ -2,5 +2,5 @@ streamlit
 mediapipe==0.8.10.1
 opencv-python-headless==4.6.0.66
 plotly
-pandas
+pandas==1.4.1
 numpy
