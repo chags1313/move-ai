@@ -573,8 +573,8 @@ if video_file is not None:
         st.session_state['slide_value']  = st.session_state['slide_value'] + 0.1
     play = c3.button("Play")
     if play:
-        for i in range(len(df_pose)):
-            st.session_state['slide_value'] = st.session_state['slide_value'] + i
+        for frame in df_pose['Frame'].unique():
+            st.session_state['slide_value'] = st.session_state['slide_value'] + frame
 
     # Select joint to plot
     jnt = st.multiselect('Joint', options = df_joint_angles.columns)
