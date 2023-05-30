@@ -13,7 +13,7 @@ import time
 #######################################
 #######################################
 
-st.set_page_config(page_title = 'Pose', layout = 'wide')
+st.set_page_config(page_title = 'MeasureUp', layout = 'wide', icon = '🩻)
 
 st.markdown(
     """
