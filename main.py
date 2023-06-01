@@ -629,7 +629,7 @@ if video_file is not None:
                 le.code(f"Min: {round(df_joint_angles[joint].min(), 2)} degrees")
                 le.code(f"Max: {round(df_joint_angles[joint].max(), 2)} degrees")
                 le.code(f"Range: {round(df_joint_angles[joint].max() - df_joint_angles[joint].min(), 2)} degrees")
-                le.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg'})
+                le.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg', 'staticPlot': True})
                 le.write("____")
         for joint in jnt:
             if joint.startswith("Right"):
@@ -660,7 +660,7 @@ if video_file is not None:
                 ri.code(f"Min: {round(df_joint_angles[joint].min(), 2)} degrees")
                 ri.code(f"Max: {round(df_joint_angles[joint].max(), 2)} degrees")
                 ri.code(f"Range: {round(df_joint_angles[joint].max() - df_joint_angles[joint].min(), 2)} degrees")
-                ri.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg'})
+                ri.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg', 'staticPlot': True})
                 ri.write("____")
 else:
     with analysis:
