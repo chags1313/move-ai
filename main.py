@@ -13,7 +13,11 @@ import time
 #######################################
 #######################################
 
-st.set_page_config(page_title = 'MeasureUp', layout = 'wide', page_icon = '🩻')
+st.set_page_config(page_title = 'Pose', 
+                   layout = 'wide',
+                   menu_items = {'Get Help': 'mailto:hagencolej@gmail.com',
+                                 'Report a bug': None,
+                                 'About': None})
 
 st.markdown(
     """
@@ -27,13 +31,22 @@ button {
 """,
     unsafe_allow_html=True,
 )
+#            #MainMenu {visibility: hidden;}
 hide_streamlit_style = """
             <style>
-            #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True) 
+
+hide_img_fs = '''
+<style>
+button[title="View fullscreen"]{
+    visibility: hidden;}
+</style>
+'''
+
+st.markdown(hide_img_fs, unsafe_allow_html=True)
 
 
 #######################################
@@ -81,8 +94,8 @@ def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
     return resized
 
 
-@st.cache(allow_output_mutation=True)
-def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, color_discrete_map, textsize, linesize, markersize):
+@st.cache_data(show_spinner="Analyzing video frames...", ttl=1800, max_entries=2)
+def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize):
     tfile = tempfile.NamedTemporaryFile(delete=False)
     tfile.write(video_path.read())
     cap = cv2.VideoCapture(tfile.name)
@@ -233,7 +246,12 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
                     elif joint == 'Left Index':
                         angle = ''
                     try:
-                        cv2.putText(frame, f'{angle:.2f}', (x + 10, y + 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), textsize)
+                        if angletextcolor == 'Grey':
+                            cv2.putText(frame, f'{angle:.2f}', (x + 10, y + 10), cv2.FONT_HERSHEY_SIMPLEX, textscale, (128, 128, 128), textsize)
+                        if angletextcolor == 'White':
+                            cv2.putText(frame, f'{angle:.2f}', (x + 10, y + 10), cv2.FONT_HERSHEY_SIMPLEX, textscale, (255, 255, 255), textsize)
+                        if angletextcolor == 'Black':
+                            cv2.putText(frame, f'{angle:.2f}', (x + 10, y + 10), cv2.FONT_HERSHEY_SIMPLEX, textscale, (0, 0, 0), textsize)
                     except:
                         continue
 
@@ -271,7 +289,7 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
     return df_pose, image_list
 
 
-@st.cache(allow_output_mutation=True)
+@st.cache_data()
 def calculate_joint_angles(df_pose):
     # Define the joint angle calculation function
     def get_joint_angle(p1, p2, p3):
@@ -314,7 +332,7 @@ def calculate_joint_angles(df_pose):
         df_joint_angles.loc[df_pose.index[i]] = joint_angles
     return df_joint_angles
 
-@st.cache(allow_output_mutation=True)
+@st.cache_data()
 def calculate_joint_angle_velocities(df_joint_angles):
     # Calculate the joint angle velocities
     df_joint_angle_velocities = df_joint_angles.diff().dropna()
@@ -328,7 +346,8 @@ def create_joint_line_plot(df_joint_angles, jnt, slide, color_discrete_map, heig
                               y = jnt, 
                               color_discrete_map=color_discrete_map) 
     joint_line_plot.update_layout(height = height, 
-                                  hovermode="x")
+                                  hovermode="x",
+                                  showlegend = False)
     joint_line_plot.update_xaxes(tickformat="%H:%M:%S", 
                                  title = 'Seconds (HH:MM:SS)')
     joint_line_plot.update_yaxes(range=[0,190], 
@@ -344,7 +363,7 @@ def create_joint_velocity_plot(df_joint_angles, jnt, slide, color_discrete_map, 
     joint_velocity_plot = px.area(df_joint_angles.diff(10).abs(), 
                                   y = jnt, 
                                   color_discrete_map=color_discrete_map)
-    joint_velocity_plot.update_layout(height = height, hovermode="x")
+    joint_velocity_plot.update_layout(height = height, hovermode="x", showlegend = False)
     joint_velocity_plot.update_xaxes(tickformat="%H:%M:%S", title = 'Seconds (HH:MM:SS)')
     joint_velocity_plot.update_yaxes(title = 'Velocity (degrees/second)')
     joint_velocity_plot.add_vline(x = df_joint_angles['time'].iloc[slide], line_color = 'grey')
@@ -359,13 +378,13 @@ def create_joint_velocity_plot(df_joint_angles, jnt, slide, color_discrete_map, 
 
 # Upload a video
 titleleft, titleright, l = st.columns([1,10, 2])
-titleleft.image('https://th.bing.com/th/id/OIG.nEszjPy0ffritU2Cj5UI?pid=ImgGn',
+titleleft.image('https://github.com/chags1313/move-ai/blob/main/Ms.png?raw=true',
          width = 100)
-titleright.title("MeasureUp")
+titleright.title("MotionSense", anchor = False)
 #st.markdown("<h4 style='text-align: center;'>MeasureUp</h4>", unsafe_allow_html=True)
 st.markdown(
 """
-MeasureUp is a free markerless motion capture software
+Human movement insights powered by computer vision and a single camera
 """)
 l.button("Log in 👤")
 upload, analysis, data = st.tabs(['File', 'Analysis', 'Data'])
@@ -431,14 +450,70 @@ with upload:
         st.write("___")
         markersize = st.number_input("Marker Sizes", min_value = 0, max_value = 20, value = 5, help = 'Size of the marker in pixels that will be displayed on each joint.')
         linesize = st.number_input("Line Sizes", min_value = 0, max_value = 20, value = 2, help = 'Size of the line in pixels that will be displayed on each joint connection')
+        textscale = st.number_input("Angle Text Scale", min_value = 0.0, max_value = 5.0, value = 1.0, step = 0.1, help = 'Scale of text in reference to the depth of the marker coordinates.')
         textsize = st.number_input("Angle Text Thickness", min_value = 0, max_value = 20, value = 2, help = 'Thickness of the text appended to each image representing the angle of each joint in degrees.')
+        angletextcolor = st.selectbox("Angle Text Color", options = ['White', 'Grey', 'Black'], help = 'Color of the text appended to show joint angle values.')
+
+    htm = """
+    <style>
+        span[data-baseweb="tag"][aria-label="Right Shoulder, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorshldr};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Left Shoulder, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorshldl};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Right Elbow, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorelbr};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Left Elbow, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorelbl};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Right Wrist, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorwrsr}; color: black"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Left Wrist, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorwrsl}; color: black"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Right Hip, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorhipr};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Left Hip, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorhipl};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Right Knee, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorknr};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Left Knee, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorknl};"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Right Ankle, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorankr}; color: black"""
+    htm +=  """}"""
+    htm += """    span[data-baseweb="tag"][aria-label="Left Ankle, close by backspace"]{"""
+    htm += f"""
+            background-color: {colorankl}; color: black"""
+    htm +=  """}"""
+
+    htm += """</style>"""
+    st.markdown(htm, unsafe_allow_html=True)
 
 if video_file is not None:
     with upload:
         st.video(video_file)
     with analysis:
         # Process the video to extract pose keypoints
-        df_pose, key_arr = extract_pose_keypoints(video_file, fps, detectconfidence, trackconfidence, color_discrete_map, textsize, linesize, markersize)
+        df_pose, key_arr = extract_pose_keypoints(video_file, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize)
         # Calculate joint angles
         df_joint_angles = calculate_joint_angles(df_pose)
         # Perform exponential weighted mean on joint angles to smooth data
@@ -446,9 +521,12 @@ if video_file is not None:
         # Slider to display specific time of values
         if 'slide_value' not in st.session_state:
             st.session_state['slide_value'] = 0.0
-        rs, c, ls = st.columns(3)
+        #rs, c, ls = st.columns(3)
         step = df_pose['Frame'].iloc[1] - df_pose['Frame'].iloc[0]
         max_step = df_pose['Frame'].max()
+        df_joint_angles['time'] = df_joint_angles.index
+        options = [col for col in df_joint_angles.drop(['time'], axis = 1).columns]
+        jnt = st.multiselect('Joint', key = 'jnt', options = options, default = options, label_visibility='collapsed', help = 'Joints to plot')
         with st.expander("Controls"):
             st.write("")
             c1, c2, c3, c4, c5  = st.columns([1,1,1,1,4])
@@ -475,9 +553,6 @@ if video_file is not None:
         cnr = im.empty()
         pl1 = pl.empty()
         pl2 = pl.empty()
-        df_joint_angles['time'] = df_joint_angles.index
-        options = [col for col in df_joint_angles.drop(['time'], axis = 1).columns]
-        jnt = st.multiselect('Joint', key = 'jnt', options = options, default = options, label_visibility='hidden', help = 'Joints to plot')
         joint_line_plot = create_joint_line_plot(df_joint_angles, jnt, slide = int(st.session_state['slide_value'] * fps), color_discrete_map=color_discrete_map)
         # Create joint velocity plot
         joint_velocity_plot = create_joint_velocity_plot(df_joint_angles, jnt, slide = int(st.session_state['slide_value'] * fps), color_discrete_map=color_discrete_map)
@@ -508,6 +583,8 @@ if video_file is not None:
                 time.sleep(1/30)
         #st.plotly_chart(imag, use_container_width=True, config= {'displaylogo': False})
         cnr.image(key_arr[int(st.session_state['slide_value'] * fps)], channels='BGR')
+        st.write("_____")
+        st.write("_____")
 
     with data:
         with st.expander("Joint Angles", expanded = True):
@@ -518,26 +595,71 @@ if video_file is not None:
             st.warning("Expressed as tuple(x,y,z,confidence) over time")
             st.download_button("Download Joint Postions", df_pose.to_csv().encode('utf-8'), use_container_width=True)
             st.write(df_pose, use_container_width = True)
+
     with analysis:
-        st.warning("Joint Angles", icon = '📐')
+        #st.success("Joint Angles", icon = '📐')
         le, ri = st.columns(2)
         for joint in jnt:
             if joint.startswith("Left"):
-                le.success(joint)
+                if 'Wrist' in joint or 'Ankle' in joint:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: black;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 📐</style>
+                                    <BR></p>"""
+                else:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: white;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 📐</style>
+                                <BR></p>"""
+                le.markdown(html_str, unsafe_allow_html=True)
                 le.code(f"Mean: {round(df_joint_angles[joint].mean(), 2)} degrees")
                 le.code(f"Min: {round(df_joint_angles[joint].min(), 2)} degrees")
                 le.code(f"Max: {round(df_joint_angles[joint].max(), 2)} degrees")
                 le.code(f"Range: {round(df_joint_angles[joint].max() - df_joint_angles[joint].min(), 2)} degrees")
-                le.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 220), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg'})
+                le.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg'})
                 le.write("____")
         for joint in jnt:
             if joint.startswith("Right"):
-                ri.success(joint)
+                if 'Wrist' in joint or 'Ankle' in joint:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: black;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 📐</style>
+                                    <BR></p>"""
+                else:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: white;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 📐</style>
+                                <BR></p>"""
+                ri.markdown(html_str, unsafe_allow_html=True)
                 ri.code(f"Mean: {round(df_joint_angles[joint].mean(), 2)} degrees")
                 ri.code(f"Min: {round(df_joint_angles[joint].min(), 2)} degrees")
                 ri.code(f"Max: {round(df_joint_angles[joint].max(), 2)} degrees")
                 ri.code(f"Range: {round(df_joint_angles[joint].max() - df_joint_angles[joint].min(), 2)} degrees")
-                ri.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 220), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg'})
+                ri.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg'})
                 ri.write("____")
 else:
     with analysis:
