@@ -95,7 +95,7 @@ def image_resize(image, width = None, height = None, inter = cv2.INTER_AREA):
     return resized
 
 
-@st.cache_data(show_spinner="Analyzing video frames...", ttl=1800, max_entries=2)
+@st.cache_data(show_spinner="Analyzing video frames...")
 def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize):
     tfile = tempfile.NamedTemporaryFile(delete=False)
     tfile.write(video_path.read())
