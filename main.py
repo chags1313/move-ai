@@ -13,7 +13,7 @@ import time
 #######################################
 #######################################
 
-st.set_page_config(page_title = 'Pose', 
+st.set_page_config(page_title = 'MoveSense', 
                    layout = 'wide',
                    page_icon = '🌐',
                    menu_items = {'Get Help': 'mailto:hagencolej@gmail.com',
@@ -36,6 +36,7 @@ button {
 hide_streamlit_style = """
             <style>
             footer {visibility: hidden;}
+            MainMenu {visibility: hidden;}
             </style>
             """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True) 
@@ -381,7 +382,7 @@ def create_joint_velocity_plot(df_joint_angles, jnt, slide, color_discrete_map, 
 titleleft, titleright, l = st.columns([1,10, 2])
 titleleft.image('https://github.com/chags1313/move-ai/blob/main/Ms.png?raw=true',
          width = 100)
-titleright.title("MotionSense", anchor = False)
+titleright.title("MoveSense", anchor = False)
 #st.markdown("<h4 style='text-align: center;'>MeasureUp</h4>", unsafe_allow_html=True)
 st.markdown(
 """
@@ -514,17 +515,18 @@ if video_file is not None:
         st.video(video_file)
     with analysis:
         # Process the video to extract pose keypoints
-        df_pose, key_arr = extract_pose_keypoints(video_file, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize)
+        if 'df_pose' not in st.session_state:
+          st.session_state.df_pose, st.session_state.key_arr = extract_pose_keypoints(video_file, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize)
         # Calculate joint angles
-        df_joint_angles = calculate_joint_angles(df_pose)
+        df_joint_angles = calculate_joint_angles(st.session_state.df_pose)
         # Perform exponential weighted mean on joint angles to smooth data
         df_joint_angles = df_joint_angles.ewm(com=1.5, adjust = False).mean()
         # Slider to display specific time of values
         if 'slide_value' not in st.session_state:
             st.session_state['slide_value'] = 0.0
         #rs, c, ls = st.columns(3)
-        step = df_pose['Frame'].iloc[1] - df_pose['Frame'].iloc[0]
-        max_step = df_pose['Frame'].max()
+        step = st.session_state.df_pose['Frame'].iloc[1] - st.session_state.df_pose['Frame'].iloc[0]
+        max_step = st.session_state.df_pose['Frame'].max()
         df_joint_angles['time'] = df_joint_angles.index
         options = [col for col in df_joint_angles.drop(['time'], axis = 1).columns]
         jnt = st.multiselect('Joint', key = 'jnt', options = options, default = options, label_visibility='collapsed', help = 'Joints to plot')
@@ -568,7 +570,7 @@ if video_file is not None:
                     break
                 # Display the image using Streamlit
                 st.session_state['slide_value'] = i
-                cnr.image(key_arr[int(st.session_state['slide_value'] * fps)], channels='BGR')
+                cnr.image(st.session_state.key_arr[int(st.session_state['slide_value'] * fps)], channels='BGR')
                 slide_container.slider("TIMER",
                            min_value = 0.0,
                              max_value = max_step,
@@ -583,7 +585,7 @@ if video_file is not None:
                 # Wait for the specified time to achieve the desired frame rate
                 time.sleep(1/30)
         #st.plotly_chart(imag, use_container_width=True, config= {'displaylogo': False})
-        cnr.image(key_arr[int(st.session_state['slide_value'] * fps)], channels='BGR')
+        cnr.image(st.session_state.key_arr[int(st.session_state['slide_value'] * fps)], channels='BGR')
         st.write("_____")
         st.write("_____")
 
@@ -594,8 +596,8 @@ if video_file is not None:
             st.dataframe(df_joint_angles, use_container_width=True)
         with st.expander("Keypoints", expanded = True):
             st.warning("Expressed as tuple(x,y,z,confidence) over time")
-            st.download_button("Download Joint Postions", df_pose.to_csv().encode('utf-8'), use_container_width=True)
-            st.write(df_pose, use_container_width = True)
+            st.download_button("Download Joint Postions", st.session_state.df_pose.to_csv().encode('utf-8'), use_container_width=True)
+            st.write(st.session_state.df_pose, use_container_width = True)
 
     with analysis:
         #st.success("Joint Angles", icon = '📐')
