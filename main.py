@@ -6,6 +6,10 @@ import numpy as np
 import plotly.express as px
 import tempfile
 import time
+from io import BytesIO
+import os
+import av
+
 
 #######################################
 ######################################
@@ -101,6 +105,7 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
     tfile = tempfile.NamedTemporaryFile(delete=False)
     tfile.write(video_path.read())
     cap = cv2.VideoCapture(tfile.name)
+    os.remove(tfile.name)
 
     # Define mediapipe pose detection module
     mp_pose = mp.solutions.pose
@@ -108,10 +113,8 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
 
     # Initialize the pose detection module
     with mp_pose.Pose(min_detection_confidence=detectconfidence, min_tracking_confidence=trackconfidence) as pose:
-        #fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        #output = cv2.VideoWriter('C:/Users/chags/OneDrive/Desktop/HARPipe/video.mp4', fourcc, fps, (fx, fy))
-        #wdt = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        #ht = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        wdt = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        ht = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         # Create a dataframe to store the pose keypoints
         df_pose = pd.DataFrame()
@@ -137,7 +140,7 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
 
             # Convert the frame to RGB and resize if needed
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            #frame = cv2.resize(frame, (fx, fy))  # Adjust the size as needed
+            # frame = cv2.resize(frame, (fx, fy))  # Adjust the size as needed
 
             # Process the frame to extract the pose keypoints
             results = pose.process(frame)
@@ -150,10 +153,10 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
 
                 # Draw the landmarks on the frame
                 mp_drawing.draw_landmarks(frame, landmarks, mp_pose.POSE_CONNECTIONS,
-                                           landmark_drawing_spec=mp_drawing.DrawingSpec(color=(128, 128, 128),
-                                                                                         circle_radius=0),
-                                           connection_drawing_spec=mp_drawing.DrawingSpec(color=(255, 255, 255),
-                                                                                           thickness=linesize))
+                                          landmark_drawing_spec=mp_drawing.DrawingSpec(color=(128, 128, 128),
+                                                                                        circle_radius=0),
+                                          connection_drawing_spec=mp_drawing.DrawingSpec(color=(255, 255, 255),
+                                                                                          thickness=linesize))
 
                 # Add joint markers and lines
                 joint_indices = {'Left Shoulder': 11, 'Left Elbow': 13, 'Left Wrist': 15,
@@ -257,13 +260,10 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
                     except:
                         continue
 
-
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            # Write the frame to the output video
-            #output.write(frame)
 
             # Append the frame to the image list
-            frame = image_resize(frame, height = 400)
+            frame = image_resize(frame, height=400)
             image_list.append(frame)
 
             # Create a dictionary to store the pose landmarks
@@ -276,9 +276,8 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
 
             # Add the landmarks to the dataframe
             df_pose = df_pose.append(landmarks_dict, ignore_index=True)
- 
-        #output.release()
-        
+
+
         # Convert the dataframe to seconds
         df_pose['Frame'] = df_pose.index / fps
         diff = df_pose['Frame'].iloc[1] - df_pose['Frame'].iloc[0]
@@ -287,8 +286,36 @@ def extract_pose_keypoints(video_path, fps, detectconfidence, trackconfidence, c
 
         df_pose['time'] = pd.date_range(start='00:00:00', periods=data_points, freq=time_interval)
         df_pose = df_pose.set_index('time')
+        video_data = create_video(frames = image_list, height = ht, width = wdt, fps = fps)
+        
 
-    return df_pose, image_list
+    return df_pose, video_data
+
+def create_video(frames, height, width, fps):
+  
+  output_memory_file = BytesIO()  # Create BytesIO "in memory file".
+  
+  output = av.open(output_memory_file, 'w', format="mp4")  # Open "in memory file" as MP4 video output
+  stream = output.add_stream('h264', str(fps))  # Add H.264 video stream to the MP4 container, with framerate = fps.
+  stream.width = width  # Set frame width
+  stream.height = height  # Set frame height
+  #stream.pix_fmt = 'yuv444p'   # Select yuv444p pixel format (better quality than default yuv420p).
+  stream.pix_fmt = 'yuv420p'   # Select yuv420p pixel format for wider compatibility.
+  stream.options = {'crf': '17'}  # Select low crf for high quality (the price is larger file size).
+  # Iterate the created images, encode and write to MP4 memory file.
+  for i in range(len(frames)):
+      img = frames[i]  # Create OpenCV image for testing (resolution 192x108, pixel format BGR).
+      frame = av.VideoFrame.from_ndarray(img, format='bgr24')  # Convert image from NumPy Array to frame.
+      packet = stream.encode(frame)  # Encode video frame
+      output.mux(packet)  # "Mux" the encoded frame (add the encoded frame to MP4 file).
+  
+  # Flush the encoder
+  packet = stream.encode(None)
+  output.mux(packet)
+  output.close()
+  
+  output_memory_file.seek(0)  # Seek to the beginning of the BytesIO.
+  return output_memory_file
 
 
 @st.cache_data()
@@ -360,17 +387,21 @@ def create_joint_line_plot(df_joint_angles, jnt, slide, color_discrete_map, heig
         color = color_discrete_map[jnt]
         joint_line_plot.update_traces(line_color = color)
     return joint_line_plot
-def create_joint_velocity_plot(df_joint_angles, jnt, slide, color_discrete_map, height = 200):
+def create_joint_velocity_plot(df_joint_angles, jnt, fps, slide, color_discrete_map, height = 200):
     df_joint_angles['time'] = df_joint_angles.index
-    joint_velocity_plot = px.area(df_joint_angles.diff(10).abs(), 
+    joint_velocity_plot = px.area(df_joint_angles.diff(fps).abs(), 
                                   y = jnt, 
                                   color_discrete_map=color_discrete_map)
     joint_velocity_plot.update_layout(height = height, hovermode="x", showlegend = False)
     joint_velocity_plot.update_xaxes(tickformat="%H:%M:%S", title = 'Seconds (HH:MM:SS)')
     joint_velocity_plot.update_yaxes(title = 'Velocity (degrees/second)')
-    joint_velocity_plot.add_vline(x = df_joint_angles['time'].iloc[slide], line_color = 'grey')
+    #joint_velocity_plot.add_vline(x = df_joint_angles['time'].iloc[slide], line_color = 'grey')
+    if slide == None:
+      joint_velocity_plot.update_traces(line_color = color_discrete_map[jnt])
     return joint_velocity_plot
 
+def update_info():
+  st.session_state.df_pose, st.session_state.key_arr = extract_pose_keypoints(video_file, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize)
 
 #######################################
 ######################################
@@ -388,8 +419,11 @@ st.markdown(
 """
 Human movement insights powered by computer vision and a single camera
 """)
-l.button("Log in 👤")
-upload, analysis, data = st.tabs(['File', 'Analysis', 'Data'])
+l.markdown(
+  """
+[![forthebadge](data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2My4xNCIgaGVpZ2h0PSIzNSIgdmlld0JveD0iMCAwIDYzLjE0IDM1Ij48cmVjdCBjbGFzcz0ic3ZnX19yZWN0IiB4PSIwIiB5PSIwIiB3aWR0aD0iNjMuMTQiIGhlaWdodD0iMzUiIGZpbGw9IiM1ODVFNjAiLz48cmVjdCBjbGFzcz0ic3ZnX19yZWN0IiB4PSI2My4xNCIgeT0iMCIgd2lkdGg9IjAiIGhlaWdodD0iMzUiIGZpbGw9IiMzODlBRDUiLz48cGF0aCBjbGFzcz0ic3ZnX190ZXh0IiBkPSJNMTUuNzAgMjJMMTQuMjIgMjJMMTQuMjIgMTMuNDdMMTUuNzAgMTMuNDdMMTUuNzAgMTcuMDJMMTkuNTEgMTcuMDJMMTkuNTEgMTMuNDdMMjAuOTkgMTMuNDdMMjAuOTkgMjJMMTkuNTEgMjJMMTkuNTEgMTguMjFMMTUuNzAgMTguMjFMMTUuNzAgMjJaTTMxLjMxIDIyTDI1LjczIDIyTDI1LjczIDEzLjQ3TDMxLjI3IDEzLjQ3TDMxLjI3IDE0LjY2TDI3LjIxIDE0LjY2TDI3LjIxIDE3LjAyTDMwLjcyIDE3LjAyTDMwLjcyIDE4LjE5TDI3LjIxIDE4LjE5TDI3LjIxIDIwLjgyTDMxLjMxIDIwLjgyTDMxLjMxIDIyWk00MC44NiAyMkwzNS41MCAyMkwzNS41MCAxMy40N0wzNi45OSAxMy40N0wzNi45OSAyMC44Mkw0MC44NiAyMC44Mkw0MC44NiAyMlpNNDYuNDcgMjJMNDQuOTggMjJMNDQuOTggMTMuNDdMNDguMjUgMTMuNDdRNDkuNjggMTMuNDcgNTAuNTIgMTQuMjFRNTEuMzYgMTQuOTYgNTEuMzYgMTYuMThMNTEuMzYgMTYuMThRNTEuMzYgMTcuNDQgNTAuNTQgMTguMTNRNDkuNzEgMTguODMgNDguMjMgMTguODNMNDguMjMgMTguODNMNDYuNDcgMTguODNMNDYuNDcgMjJaTTQ2LjQ3IDE0LjY2TDQ2LjQ3IDE3LjY0TDQ4LjI1IDE3LjY0UTQ5LjA0IDE3LjY0IDQ5LjQ2IDE3LjI3UTQ5Ljg3IDE2LjkwIDQ5Ljg3IDE2LjE5TDQ5Ljg3IDE2LjE5UTQ5Ljg3IDE1LjUwIDQ5LjQ1IDE1LjA5UTQ5LjAzIDE0LjY4IDQ4LjI5IDE0LjY2TDQ4LjI5IDE0LjY2TDQ2LjQ3IDE0LjY2WiIgZmlsbD0iI0ZGRkZGRiIvPjxwYXRoIGNsYXNzPSJzdmdfX3RleHQiIGQ9IiIgZmlsbD0iI0ZGRkZGRiIgeD0iNzYuMTQiLz48L3N2Zz4=)](https://github.com/chags1313/MoveSense) 
+""")
+upload, analysis, data = st.tabs(['Pose Estimation', 'Angle', 'Velocity'])
 color_discrete_map={
 'Right Shoulder': '#ff8000',
 'Right Elbow': '#ffb266', 
@@ -405,56 +439,61 @@ color_discrete_map={
 'Left Ankle': '#ccccff'
 }
 with upload:
-    l, r = st.columns(2)
-    fps = st.number_input("Frames Per Second", value = 10, step = 1, help = 'Frames per second (FPS) to be processed. Processing time increases as FPS increases.')
-    trackconfidence = l.number_input("Tracking Confidence", value = 0.85, step = 0.1, help = 'The minimum confidence level to be used for tracking joints over time. This is on a scale of 0 to 1. 0 represents low confidence and 1 represents high confidence.')
-    detectconfidence = r.number_input("Detection Confidence", value = 0.85, step = 0.1, help = 'The minimum confidence level to be used for detecting joints. This is on a scale of 0 to 1. 0 represents low confidence and 1 represents high confidence.')
     video_file = st.file_uploader("Upload a video", 
                             help = "Upload a video to markerless motion capture data.")
     with st.expander("Advanced Motion Capture Settings"):
-        l1, r1 = st.columns(2)
-        fx = 640
-        fy = 480
-        l1.write("___")
-        r1.write("___")
-        l1.write("Left Joint Colors")
-        r1.write("Right Joint Colors")
-        l1.write("___")
-        r1.write("___")
-        colorshldl = l1.color_picker("Left Shoulder", value = color_discrete_map['Left Shoulder'])
-        colorshldr = r1.color_picker("Right Shoulder", value = color_discrete_map['Right Shoulder'])
-        colorelbl = l1.color_picker("Left Elbow", value = color_discrete_map['Left Elbow'])
-        colorelbr = r1.color_picker("Right Elbow", value = color_discrete_map['Right Elbow'])
-        colorwrsl = l1.color_picker("Left Wrist", value = color_discrete_map['Left Wrist'])
-        colorwrsr = r1.color_picker("Right Wrist", value = color_discrete_map['Right Wrist'])
-        colorhipl = l1.color_picker("Left Hip", value = color_discrete_map['Left Hip'])
-        colorhipr = r1.color_picker("Right Hip", value = color_discrete_map['Right Hip'])
-        colorknl = l1.color_picker("Left Knee", value = color_discrete_map['Left Knee'])
-        colorknr = r1.color_picker("Right Knee", value = color_discrete_map['Right Knee'])
-        colorankl = l1.color_picker("Left Ankle", value = color_discrete_map['Left Ankle'])
-        colorankr = r1.color_picker("Right Ankle", value = color_discrete_map['Right Ankle'])
-        color_discrete_map={
-        'Right Shoulder': colorshldr,
-        'Right Elbow': colorelbr, 
-        'Right Wrist': colorwrsr, 
-        'Left Shoulder': colorshldl,
-        'Left Elbow': colorelbl, 
-        'Left Wrist':colorwrsl,
-        'Right Hip': colorhipr,
-        'Right Knee': colorknr, 
-        'Right Ankle': colorankr,
-        'Left Hip': colorhipl,
-        'Left Knee': colorknl, 
-        'Left Ankle': colorankl
-        }
-        st.write("___")
-        st.write("Marker and Text Settings")
-        st.write("___")
-        markersize = st.number_input("Marker Sizes", min_value = 0, max_value = 20, value = 5, help = 'Size of the marker in pixels that will be displayed on each joint.')
-        linesize = st.number_input("Line Sizes", min_value = 0, max_value = 20, value = 2, help = 'Size of the line in pixels that will be displayed on each joint connection')
-        textscale = st.number_input("Angle Text Scale", min_value = 0.0, max_value = 5.0, value = 1.0, step = 0.1, help = 'Scale of text in reference to the depth of the marker coordinates.')
-        textsize = st.number_input("Angle Text Thickness", min_value = 0, max_value = 20, value = 2, help = 'Thickness of the text appended to each image representing the angle of each joint in degrees.')
-        angletextcolor = st.selectbox("Angle Text Color", options = ['White', 'Grey', 'Black'], help = 'Color of the text appended to show joint angle values.')
+          l, r = st.columns(2)
+          fps = st.number_input("Frames Per Second", value = 3, max_value = 10, min_value = 1, step = 1, help = 'Frames per second (FPS) to be processed. Processing time increases as FPS increases.')
+          trackconfidence = l.number_input("Tracking Confidence", value = 0.85, step = 0.1, help = 'The minimum confidence level to be used for tracking joints over time. This is on a scale of 0 to 1. 0 represents low confidence and 1 represents high confidence.')
+          detectconfidence = r.number_input("Detection Confidence", value = 0.85, step = 0.1, help = 'The minimum confidence level to be used for detecting joints. This is on a scale of 0 to 1. 0 represents low confidence and 1 represents high confidence.')
+          l1, r1 = st.columns(2)
+          fx = 640
+          fy = 480
+          l1.write("___")
+          r1.write("___")
+          l1.write("Left Joint Colors")
+          r1.write("Right Joint Colors")
+          l1.write("___")
+          r1.write("___")
+          colorshldl = l1.color_picker("Left Shoulder", value = color_discrete_map['Left Shoulder'])
+          colorshldr = r1.color_picker("Right Shoulder", value = color_discrete_map['Right Shoulder'])
+          colorelbl = l1.color_picker("Left Elbow", value = color_discrete_map['Left Elbow'])
+          colorelbr = r1.color_picker("Right Elbow", value = color_discrete_map['Right Elbow'])
+          colorwrsl = l1.color_picker("Left Wrist", value = color_discrete_map['Left Wrist'])
+          colorwrsr = r1.color_picker("Right Wrist", value = color_discrete_map['Right Wrist'])
+          colorhipl = l1.color_picker("Left Hip", value = color_discrete_map['Left Hip'])
+          colorhipr = r1.color_picker("Right Hip", value = color_discrete_map['Right Hip'])
+          colorknl = l1.color_picker("Left Knee", value = color_discrete_map['Left Knee'])
+          colorknr = r1.color_picker("Right Knee", value = color_discrete_map['Right Knee'])
+          colorankl = l1.color_picker("Left Ankle", value = color_discrete_map['Left Ankle'])
+          colorankr = r1.color_picker("Right Ankle", value = color_discrete_map['Right Ankle'])
+          color_discrete_map={
+          'Right Shoulder': colorshldr,
+          'Right Elbow': colorelbr, 
+          'Right Wrist': colorwrsr, 
+          'Left Shoulder': colorshldl,
+          'Left Elbow': colorelbl, 
+          'Left Wrist':colorwrsl,
+          'Right Hip': colorhipr,
+          'Right Knee': colorknr, 
+          'Right Ankle': colorankr,
+          'Left Hip': colorhipl,
+          'Left Knee': colorknl, 
+          'Left Ankle': colorankl
+          }
+          st.write("___")
+          st.write("Marker and Text Settings")
+          st.write("___")
+          markersize = st.number_input("Marker Sizes", min_value = 0, max_value = 20, value = 5, help = 'Size of the marker in pixels that will be displayed on each joint.')
+          linesize = st.number_input("Line Sizes", min_value = 0, max_value = 20, value = 2, help = 'Size of the line in pixels that will be displayed on each joint connection')
+          textscale = st.number_input("Angle Text Scale", min_value = 0.0, max_value = 5.0, value = 1.0, step = 0.1, help = 'Scale of text in reference to the depth of the marker coordinates.')
+          textsize = st.number_input("Angle Text Thickness", min_value = 0, max_value = 20, value = 2, help = 'Thickness of the text appended to each image representing the angle of each joint in degrees.')
+          angletextcolor = st.selectbox("Angle Text Color", options = ['White', 'Grey', 'Black'], help = 'Color of the text appended to show joint angle values.')
+          st.write("___")
+          st.write("Plot Settings")
+          st.write("___")
+          options = color_discrete_map.keys()
+          jnt = st.multiselect('Joint', key = 'jnt', options = options, default = options, help = 'Select the joints to view in the plots')
 
     htm = """
     <style>
@@ -511,13 +550,13 @@ with upload:
     st.markdown(htm, unsafe_allow_html=True)
 
 if video_file is not None:
-    with upload:
-        st.video(video_file)
     with analysis:
         # Process the video to extract pose keypoints
-        if 'df_pose' not in st.session_state:
-          st.session_state.df_pose, st.session_state.key_arr = extract_pose_keypoints(video_file, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize)
+        st.session_state.df_pose, st.session_state.key_arr = extract_pose_keypoints(video_file, fps, detectconfidence, trackconfidence, color_discrete_map, textscale, textsize, angletextcolor, linesize, markersize)
         # Calculate joint angles
+        with upload:
+          container_left, container_right = st.columns(2)
+          container_left.video(st.session_state.key_arr)
         df_joint_angles = calculate_joint_angles(st.session_state.df_pose)
         # Perform exponential weighted mean on joint angles to smooth data
         df_joint_angles = df_joint_angles.ewm(com=1.5, adjust = False).mean()
@@ -528,79 +567,18 @@ if video_file is not None:
         step = st.session_state.df_pose['Frame'].iloc[1] - st.session_state.df_pose['Frame'].iloc[0]
         max_step = st.session_state.df_pose['Frame'].max()
         df_joint_angles['time'] = df_joint_angles.index
-        options = [col for col in df_joint_angles.drop(['time'], axis = 1).columns]
-        jnt = st.multiselect('Joint', key = 'jnt', options = options, default = options, label_visibility='collapsed', help = 'Joints to plot')
-        with st.expander("Controls"):
-            st.write("")
-            c1, c2, c3, c4, c5  = st.columns([1,1,1,1,4])
-        slide_container = c5.empty()
-        slide = slide_container.slider("Time",
-                           min_value = 0.0,
-                             max_value = max_step,
-                               step = step,
-                                   key = 'side1',
-                                     value = float(st.session_state['slide_value']),
-                                        label_visibility='collapsed')
-        st.session_state['slide_value'] = slide
-        prev = c3.button("⏮️", use_container_width=True)
-        if prev:
-            if st.session_state['slide_value'] != 0.0:
-                st.session_state['slide_value']  = st.session_state['slide_value'] - step
-        next = c4.button("⏭️", use_container_width=True)
-        if next:
-            if st.session_state['slide_value'] < max_step:
-                st.session_state['slide_value']  = st.session_state['slide_value'] + step
-        play = c2.button("▶️", use_container_width=True)
-        pause = c1.button("⏸️", use_container_width=True)
-        im, pl = st.columns(2)
-        cnr = im.empty()
-        pl1 = pl.empty()
-        pl2 = pl.empty()
-        joint_line_plot = create_joint_line_plot(df_joint_angles, jnt, slide = int(st.session_state['slide_value'] * fps), color_discrete_map=color_discrete_map)
-        # Create joint velocity plot
-        joint_velocity_plot = create_joint_velocity_plot(df_joint_angles, jnt, slide = int(st.session_state['slide_value'] * fps), color_discrete_map=color_discrete_map)
-        pl1.plotly_chart(joint_velocity_plot, use_container_width=True, config= {'displaylogo': False})
-        pl2.plotly_chart(joint_line_plot, use_container_width=True, config= {'displaylogo': False})
-        if play:
-            # Iterate over the images
-            for i in np.arange(st.session_state.slide_value, max_step, step):
-                if pause == True:
-                    break
-                if st.session_state['slide_value'] >= max_step - step:
-                    break
-                # Display the image using Streamlit
-                st.session_state['slide_value'] = i
-                cnr.image(st.session_state.key_arr[int(st.session_state['slide_value'] * fps)], channels='BGR')
-                slide_container.slider("TIMER",
-                           min_value = 0.0,
-                             max_value = max_step,
-                               step = step,
-                                     value = float(st.session_state['slide_value']),
-                                        label_visibility='collapsed')
-                joint_line_plot = create_joint_line_plot(df_joint_angles, jnt, slide = int(st.session_state['slide_value'] * fps), color_discrete_map=color_discrete_map)
-                # Create joint velocity plot
-                joint_velocity_plot = create_joint_velocity_plot(df_joint_angles, jnt, slide = int(st.session_state['slide_value'] * fps), color_discrete_map=color_discrete_map)
-                pl1.plotly_chart(joint_velocity_plot, use_container_width=True, config= {'displaylogo': False})
-                pl2.plotly_chart(joint_line_plot, use_container_width=True, config= {'displaylogo': False})
-                # Wait for the specified time to achieve the desired frame rate
-                time.sleep(1/30)
-        #st.plotly_chart(imag, use_container_width=True, config= {'displaylogo': False})
-        cnr.image(st.session_state.key_arr[int(st.session_state['slide_value'] * fps)], channels='BGR')
-        st.write("_____")
-        st.write("_____")
-
-    with data:
-        with st.expander("Joint Angles", expanded = True):
-            st.warning("Expressed as degrees over time.")
-            st.download_button("Download Joint Angles", df_joint_angles.to_csv().encode('utf-8'), use_container_width=True)
-            st.dataframe(df_joint_angles, use_container_width=True)
-        with st.expander("Keypoints", expanded = True):
-            st.warning("Expressed as tuple(x,y,z,confidence) over time")
-            st.download_button("Download Joint Postions", st.session_state.df_pose.to_csv().encode('utf-8'), use_container_width=True)
-            st.write(st.session_state.df_pose, use_container_width = True)
-
-    with analysis:
-        #st.success("Joint Angles", icon = '📐')
+        # Create joint line plot
+        joint_line_plot = create_joint_line_plot(df_joint_angles, jnt, 
+                                                 slide = int(st.session_state['slide_value'] * fps), 
+                                                 color_discrete_map=color_discrete_map,
+                                                height = 500)
+        joint_line_plot_ms = create_joint_line_plot(df_joint_angles, jnt, 
+                                                 slide = int(st.session_state['slide_value'] * fps), 
+                                                 color_discrete_map=color_discrete_map,
+                                                height = 200)
+        st.download_button("Download Joint Angles", df_joint_angles.to_csv(), use_container_width=True)
+        container_right.plotly_chart(joint_line_plot_ms, use_container_width=True, config= {'displaylogo': False})
+        st.plotly_chart(joint_line_plot, use_container_width=True, config= {'displaylogo': False})
         le, ri = st.columns(2)
         for joint in jnt:
             if joint.startswith("Left"):
@@ -663,6 +641,87 @@ if video_file is not None:
                 ri.code(f"Max: {round(df_joint_angles[joint].max(), 2)} degrees")
                 ri.code(f"Range: {round(df_joint_angles[joint].max() - df_joint_angles[joint].min(), 2)} degrees")
                 ri.plotly_chart(create_joint_line_plot(df_joint_angles, joint, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg', 'staticPlot': True})
+                ri.write("____")
+
+    with data:
+        st.download_button("Download Joint Velocities", df_joint_angles.diff(fps).abs().to_csv(), use_container_width=True)
+        # Create joint velocity plot
+        joint_velocity_plot = create_joint_velocity_plot(df_joint_angles, 
+                                                         jnt, 
+                                                         fps,
+                                                         slide = int(st.session_state['slide_value'] * fps), 
+                                                         color_discrete_map=color_discrete_map,
+                                                        height = 500)
+        joint_velocity_plot_ms = create_joint_velocity_plot(df_joint_angles, 
+                                                         jnt, 
+                                                         fps,
+                                                         slide = int(st.session_state['slide_value'] * fps), 
+                                                         color_discrete_map=color_discrete_map,
+                                                        height = 200)
+        st.plotly_chart(joint_velocity_plot, use_container_width=True, config= {'displaylogo': False})
+        container_right.plotly_chart(joint_velocity_plot_ms, use_container_width=True, config= {'displaylogo': False})
+        le, ri = st.columns(2)
+        for joint in jnt:
+            if joint.startswith("Left"):
+                if 'Wrist' in joint or 'Ankle' in joint:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: black;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 💨</style>
+                                    <BR></p>"""
+                else:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: white;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 💨</style>
+                                <BR></p>"""
+                le.markdown(html_str, unsafe_allow_html=True)
+                le.code(f"Mean: {round(df_joint_angles[joint].diff(fps).abs().mean(), 2)} degrees")
+                le.code(f"Min: {round(df_joint_angles[joint].diff(fps).abs().min(), 2)} degrees")
+                le.code(f"Max: {round(df_joint_angles[joint].diff(fps).abs().max(), 2)} degrees")
+                le.code(f"Range: {round(df_joint_angles[joint].diff(fps).abs().max() - df_joint_angles[joint].min(), 2)} degrees")
+                le.plotly_chart(create_joint_velocity_plot(df_joint_angles, joint, fps, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg', 'staticPlot': True})
+                le.write("____")
+        for joint in jnt:
+            if joint.startswith("Right"):
+                if 'Wrist' in joint or 'Ankle' in joint:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: black;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 💨</style>
+                                    <BR></p>"""
+                else:
+                    html_str = f"""<p style = 'background-color: {color_discrete_map[joint]};
+                                    color: white;
+                                    font-size: 14px;
+                                    border-radius: 7px;
+                                    padding-left: 12px;
+                                    padding-top: 13px;
+                                    padding-bottom: 13px;
+                                    line-height: 25px;'>
+                                    {joint} 💨</style>
+                                <BR></p>"""
+                ri.markdown(html_str, unsafe_allow_html=True)
+                ri.code(f"Mean: {round(df_joint_angles[joint].diff(fps).abs().mean(), 2)} degrees")
+                ri.code(f"Min: {round(df_joint_angles[joint].diff(fps).abs().min(), 2)} degrees")
+                ri.code(f"Max: {round(df_joint_angles[joint].diff(fps).abs().max(), 2)} degrees")
+                ri.code(f"Range: {round(df_joint_angles[joint].diff(fps).abs().max() - df_joint_angles[joint].min(), 2)} degrees")
+                ri.plotly_chart(create_joint_velocity_plot(df_joint_angles, joint, fps, slide = None, color_discrete_map = color_discrete_map, height = 260), use_container_width = True, config= {'displaylogo': False, 'renderer': 'svg', 'staticPlot': True})
                 ri.write("____")
 else:
     with analysis:
